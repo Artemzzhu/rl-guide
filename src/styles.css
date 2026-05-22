@@ -264,10 +264,26 @@ button {
   font-size: 13px;
 }
 
-.sidebar-footer strong {
+.footer-student-name {
+  margin-bottom: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer-progress-label {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.footer-progress-label strong {
   display: block;
-  margin: 6px 0 12px;
-  font-size: 28px;
+  color: #ffffff;
+  font-size: 22px;
+  line-height: 1;
 }
 
 .footer-profile {
@@ -305,6 +321,7 @@ button {
 
 .exam-footer-progress {
   display: flex;
+  gap: 10px;
   justify-content: space-between;
   margin-top: 10px;
   color: #b8c9bd;
@@ -1872,6 +1889,43 @@ p {
   .brand {
     padding-right: 42px;
     margin-bottom: 22px;
+  }
+
+  .sidebar-footer {
+    padding: 10px 12px;
+  }
+
+  .footer-student-name {
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+
+  .footer-progress-label {
+    margin-bottom: 6px;
+  }
+
+  .footer-progress-label span,
+  .exam-footer-progress span {
+    font-size: 11px;
+  }
+
+  .footer-progress-label strong {
+    font-size: 18px;
+  }
+
+  .progress-track {
+    height: 6px;
+  }
+
+  .exam-footer-progress {
+    margin-top: 8px;
+  }
+
+  .footer-profile {
+    min-height: 34px;
+    margin-top: 10px;
+    padding: 7px 10px;
+    font-size: 13px;
   }
 
   .content {

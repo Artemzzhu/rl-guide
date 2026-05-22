@@ -198,6 +198,13 @@ const pathForRoute = (view, topicId, subtopicId) => {
   return '/';
 };
 
+const scrollPageToTop = (behavior = 'smooth') => {
+  const scrollOptions = { top: 0, left: 0, behavior };
+  window.scrollTo(scrollOptions);
+  document.scrollingElement?.scrollTo(scrollOptions);
+  document.querySelector('.content')?.scrollTo(scrollOptions);
+};
+
 function App() {
   const initialRoute = parseRoute(window.location.pathname);
   const [activeView, setActiveView] = useState(initialRoute.view);
@@ -254,7 +261,7 @@ function App() {
     setActiveView(route.view);
     if (route.topicId) setActiveTopicId(route.topicId);
     if (route.subtopicId) setActiveSubtopicId(route.subtopicId);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollPageToTop();
   };
 
   const navigate = (view, topicId, subtopicId, replace = false) => {
@@ -266,7 +273,7 @@ function App() {
     if (topicId) setActiveTopicId(topicId);
     if (subtopicId) setActiveSubtopicId(subtopicId);
     setSidebarOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollPageToTop();
   };
 
   const navigateView = (view) => {
@@ -383,6 +390,10 @@ function App() {
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
+
+  useEffect(() => {
+    requestAnimationFrame(() => scrollPageToTop('auto'));
+  }, [activeView, activeTopicId, activeSubtopicId]);
 
   const openTopic = (topicId, subtopicId, keepTopicOnlyUrl = false) => {
     const topic = topics.find((item) => item.id === topicId);
@@ -693,8 +704,11 @@ function Sidebar({ activeSubtopicId, activeTopicId, activeView, examResult, isOp
       </nav>
 
       <div className="sidebar-footer">
-        <span>{student ? student.fullName : 'Гость'}</span>
-        <strong>{progressPercent}%</strong>
+        <span className="footer-student-name">{student ? student.fullName : 'Гость'}</span>
+        <div className="footer-progress-label">
+          <span>Прогресс курса</span>
+          <strong>{progressPercent}%</strong>
+        </div>
         <div className="progress-track">
           <div style={{ width: `${progressPercent}%` }} />
         </div>
