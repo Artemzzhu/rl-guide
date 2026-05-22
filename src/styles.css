@@ -1524,6 +1524,12 @@ p {
   box-shadow: 0 0 0 3px rgb(111 145 118 / 16%);
 }
 
+.profile-form input:disabled {
+  color: #667369;
+  background: #eef2ef;
+  cursor: not-allowed;
+}
+
 .form-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 120px;
@@ -1552,6 +1558,28 @@ p {
 .auth-switch button.active {
   color: #ffffff;
   background: #2f5a45;
+}
+
+.form-message {
+  padding: 12px 14px;
+  color: #284d3b;
+  background: #e8f1e8;
+  border: 1px solid #cfe0d1;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.form-message.warning {
+  color: #675020;
+  background: #fff5dc;
+  border-color: #eddcae;
+}
+
+.form-message.success {
+  color: #284d3b;
+  background: #e8f1e8;
+  border-color: #cfe0d1;
 }
 
 .student-card {

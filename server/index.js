@@ -1332,6 +1332,7 @@ const routes = {
 
   'POST /api/register': async (request) => {
     const body = await readBody(request);
+    const userId = body.userId ? Number(body.userId) : null;
     const fullName = String(body.fullName ?? '').trim();
     const email = String(body.email ?? '').trim().toLowerCase();
     const password = String(body.password ?? '');
@@ -1344,29 +1345,44 @@ const routes = {
     }
 
     const existingUser = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
-    if (existingUser.rows.length === 0 && !password) {
+    const emailOwner = existingUser.rows[0];
+    if (emailOwner && (!userId || Number(emailOwner.id) !== userId)) {
+      return { status: 409, payload: { error: 'Пользователь с таким email уже зарегистрирован.' } };
+    }
+
+    if (!userId && !password) {
       return { status: 400, payload: { error: 'Password is required.' } };
     }
 
     const passwordHash = password ? await hashPassword(password) : null;
-    const { rows } = await pool.query(
-      `
-        INSERT INTO users (full_name, email, password_hash, student_group, course, learning_goal)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (email) DO UPDATE SET
-          full_name = EXCLUDED.full_name,
-          password_hash = CASE
-            WHEN $7 THEN EXCLUDED.password_hash
-            ELSE users.password_hash
-          END,
-          student_group = EXCLUDED.student_group,
-          course = EXCLUDED.course,
-          learning_goal = EXCLUDED.learning_goal,
-          updated_at = NOW()
-        RETURNING *
-      `,
-      [fullName, email, passwordHash ?? 'unchanged', studentGroup, course, goal, Boolean(passwordHash)],
-    );
+    const { rows } = userId
+      ? await pool.query(
+          `
+            UPDATE users
+            SET
+              full_name = $1,
+              password_hash = COALESCE($3, password_hash),
+              student_group = $4,
+              course = $5,
+              learning_goal = $6,
+              updated_at = NOW()
+            WHERE id = $7 AND email = $2
+            RETURNING *
+          `,
+          [fullName, email, passwordHash, studentGroup, course, goal, userId],
+        )
+      : await pool.query(
+          `
+            INSERT INTO users (full_name, email, password_hash, student_group, course, learning_goal)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+          `,
+          [fullName, email, passwordHash, studentGroup, course, goal],
+        );
+
+    if (!rows.length) {
+      return { status: 404, payload: { error: 'Пользователь не найден или email нельзя изменить.' } };
+    }
 
     return {
       status: 200,

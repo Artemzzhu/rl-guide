@@ -609,6 +609,7 @@ function App() {
             completedSubtopics={completedSubtopics}
             loginStudent={loginStudent}
             logoutStudent={logoutStudent}
+            openDashboard={() => navigate('dashboard')}
             progress={progress}
             progressPercent={progressPercent}
             examResult={examResult}
@@ -2546,6 +2547,7 @@ function ProfilePage({
   examResult,
   loginStudent,
   logoutStudent,
+  openDashboard,
   progress,
   progressPercent,
   recommendations,
@@ -2558,13 +2560,14 @@ function ProfilePage({
   const [mode, setMode] = useState(student ? 'profile' : 'register');
   const [form, setForm] = useState({ ...(student ?? defaultStudent), password: '' });
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(null);
 
   const updateField = (field, value) => setForm({ ...form, [field]: value });
 
   const submitProfile = (event) => {
     event.preventDefault();
     const trimmedStudent = {
+      userId: student?.id,
       fullName: form.fullName.trim(),
       email: form.email.trim(),
       group: form.group.trim(),
@@ -2574,17 +2577,24 @@ function ProfilePage({
     };
 
     if (!trimmedStudent.fullName || !trimmedStudent.email || (!student && !trimmedStudent.password)) {
-      setMessage('Укажите имя ученика, email и пароль.');
+      setMessage({ kind: 'warning', text: 'Укажите имя ученика, email и пароль.' });
       return;
     }
 
+    const isRegistration = !student;
     saveStudent(trimmedStudent)
       .then((savedStudent) => {
         setForm({ ...savedStudent, password: '' });
         setMode('profile');
-        setMessage('');
+        setMessage({
+          kind: 'success',
+          text: isRegistration ? 'Регистрация прошла успешно.' : 'Данные ученика сохранены.',
+        });
+        if (isRegistration) {
+          setTimeout(openDashboard, 900);
+        }
       })
-      .catch(() => setMessage(''));
+      .catch((error) => setMessage({ kind: 'warning', text: error.message }));
   };
 
   const submitLogin = (event) => {
@@ -2593,9 +2603,9 @@ function ProfilePage({
       .then((savedStudent) => {
         setForm({ ...savedStudent, password: '' });
         setMode('profile');
-        setMessage('');
+        setMessage(null);
       })
-      .catch(() => setMessage(''));
+      .catch(() => setMessage({ kind: 'warning', text: 'Неверный email или пароль.' }));
   };
 
   return (
@@ -2606,14 +2616,16 @@ function ProfilePage({
 
         {!student && (
           <div className="auth-switch">
-            <button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => setMode('register')}>
+            <button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => { setMode('register'); setMessage(null); }}>
               Регистрация
             </button>
-            <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => setMode('login')}>
+            <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => { setMode('login'); setMessage(null); }}>
               Вход
             </button>
           </div>
         )}
+
+        {message && <div className={`form-message ${message.kind}`}>{message.text}</div>}
 
         {mode === 'login' ? (
           <>
@@ -2640,7 +2652,7 @@ function ProfilePage({
             )}
             <label>
               Email
-              <input autoComplete="off" type="email" value={form.email} onChange={(event) => updateField('email', event.target.value)} />
+              <input autoComplete="off" disabled={Boolean(student)} type="email" value={form.email} onChange={(event) => updateField('email', event.target.value)} />
             </label>
             <div className="form-row">
               <label>
