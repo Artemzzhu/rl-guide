@@ -17,10 +17,78 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD ?? 'rl_password',
 });
 
+const ensureRuntimeSchema = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS article_sources (
+      id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      topic_id BIGINT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+      title VARCHAR(500) NOT NULL,
+      url TEXT NOT NULL,
+      source_name VARCHAR(255) NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 1,
+      UNIQUE (topic_id, url)
+    )
+  `);
+  await pool.query("ALTER TABLE article_sources ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT ''");
+};
+
 const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS ?? 12);
 const sha256Password = async (password) => {
   const { createHash } = await import('node:crypto');
   return createHash('sha256').update(password).digest('hex');
+};
+const transliterateToLatin = (value) => {
+  const letters = {
+    а: 'a',
+    б: 'b',
+    в: 'v',
+    г: 'g',
+    д: 'd',
+    е: 'e',
+    ё: 'e',
+    ж: 'zh',
+    з: 'z',
+    и: 'i',
+    й: 'y',
+    к: 'k',
+    л: 'l',
+    м: 'm',
+    н: 'n',
+    о: 'o',
+    п: 'p',
+    р: 'r',
+    с: 's',
+    т: 't',
+    у: 'u',
+    ф: 'f',
+    х: 'h',
+    ц: 'c',
+    ч: 'ch',
+    ш: 'sh',
+    щ: 'sch',
+    ъ: '',
+    ы: 'y',
+    ь: '',
+    э: 'e',
+    ю: 'yu',
+    я: 'ya',
+  };
+
+  return String(value ?? '')
+    .toLowerCase()
+    .split('')
+    .map((char) => letters[char] ?? char)
+    .join('');
+};
+const makeUrlSlug = (value, fallback = 'subtopic') => {
+  const slug = transliterateToLatin(value)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+
+  return slug || fallback;
 };
 const hashPassword = (password) => bcrypt.hash(password, BCRYPT_ROUNDS);
 const isBcryptHash = (value) => String(value ?? '').startsWith('$2a$') || String(value ?? '').startsWith('$2b$') || String(value ?? '').startsWith('$2y$');
@@ -488,7 +556,7 @@ const syncOntologyForTopic = async (topicSlug) => {
 
     const sourceResult = await client.query(
       `
-        SELECT id, title, source_name, description
+        SELECT id, title, source_name, description, content
         FROM article_sources
         WHERE topic_id = $1
         ORDER BY sort_order, id
@@ -514,6 +582,7 @@ const syncOntologyForTopic = async (topicSlug) => {
         source.title,
         source.source_name,
         source.description,
+        source.content,
         generatedArticle,
       ].join(' ');
       const sourceConcepts = extractOntologyConcepts(sourceText);
@@ -895,8 +964,8 @@ const getOntologyRecommendations = async (userId) => {
     return [
       {
         kind: 'ontology',
-        title: 'Онтология: маршрут завершен',
-        text: 'По связям понятий все основные блоки уже закрыты. Можно переходить к повторению тестов или углублять статьи.',
+        title: 'Маршрут обучения завершен',
+        text: 'Все основные блоки уже закрыты. Можно переходить к повторению тестов или углублять статьи.',
       },
     ];
   }
@@ -907,7 +976,7 @@ const getOntologyRecommendations = async (userId) => {
     return [
       {
         kind: 'ontology',
-        title: `Онтология: сначала ${first.targetLesson.concept_title}`,
+        title: `Сначала повторите: ${first.targetLesson.concept_title}`,
         text: `Для темы "${first.row.concept_title}" не хватает предпосылок: ${missingNames}. Система предлагает закрыть ближайшую связанную подтему.`,
         topicId: first.targetLesson.topic_id,
         subtopicId: first.targetLesson.subtopic_id,
@@ -920,7 +989,7 @@ const getOntologyRecommendations = async (userId) => {
   return [
     {
       kind: 'ontology',
-      title: `Онтология: следующий шаг — ${first.row.concept_title}`,
+      title: `Следующий шаг — ${first.row.concept_title}`,
       text: `Понятие связано с текущим маршрутом и подходит по сложности. Рекомендуем открыть подтему "${first.row.subtopic_title}".`,
       topicId: first.row.topic_id,
       subtopicId: first.row.subtopic_id,
@@ -1249,6 +1318,13 @@ Critic часто оценивает V(s), Q(s,a) или advantage. Преиму
 };
 
 const buildReadableArticle = (row) => {
+  if (String(row.content ?? '').trim()) {
+    return {
+      theory: row.content,
+      practice: '',
+    };
+  }
+
   const content = articleTextByTopic[row.topic_id] ?? articleTextByTopic.intro;
   const extraText = `\n\nПри изучении этой темы важно смотреть не только на определения, но и на связь между понятиями. В обучении с подкреплением почти каждый термин используется внутри общего цикла: агент наблюдает состояние, выбирает действие, получает награду и корректирует дальнейшее поведение. Поэтому материал лучше воспринимается как единая система, а не как набор отдельных формул.\n\nДля учебного проекта эта статья служит дополнительным теоретическим материалом к теме. Она помогает повторить основные идеи перед тестом, связать подтемы между собой и понять, почему конкретный алгоритм используется именно в такой постановке. Если после чтения остаются трудности, полезно вернуться к соответствующей подтеме курса и пройти тест еще раз.`;
   return {
@@ -1275,6 +1351,24 @@ const getProfilePayload = async (userId) => {
   };
 };
 
+const parseArticleSourceId = (value) => {
+  const match = String(value ?? '').match(/-source-(\d+)$/);
+  return match ? Number(match[1]) : Number(value);
+};
+
+const syncOntologyForArticleSource = async (articleSourceId) => {
+  const { rows } = await pool.query(
+    `
+      SELECT topics.slug
+      FROM article_sources
+      JOIN topics ON topics.id = article_sources.topic_id
+      WHERE article_sources.id = $1
+    `,
+    [articleSourceId],
+  );
+  return syncOntologyForTopic(rows[0]?.slug);
+};
+
 const routes = {
   'GET /api/health': async () => {
     const { rows } = await pool.query('SELECT NOW() AS now');
@@ -1296,6 +1390,7 @@ const routes = {
         article_sources.url,
         article_sources.source_name,
         article_sources.description,
+        article_sources.content,
         article_sources.sort_order
       FROM topics
       JOIN article_sources ON article_sources.topic_id = topics.id
@@ -1315,10 +1410,12 @@ const routes = {
         keywords: [],
         sources: [
           {
+            id: row.article_id,
             title: row.title,
             url: row.url,
             sourceName: row.source_name,
             description: row.description,
+            sortOrder: row.sort_order,
           },
         ],
       })),
@@ -1658,13 +1755,100 @@ const routes = {
     return { status: 200, payload: { topics: await getTopics(), ontology } };
   },
 
+  'POST /api/admin/article-source': async (request) => {
+    const body = await readBody(request);
+    if (!(await requireAdmin(body.userId))) return { status: 403, payload: { error: 'Admin role required.' } };
+
+    const articleSourceId = parseArticleSourceId(body.articleId);
+    if (!articleSourceId) return { status: 400, payload: { error: 'Article is required.' } };
+
+    await pool.query(
+      `
+        UPDATE article_sources
+        SET
+          title = $1,
+          url = $2,
+          source_name = $3,
+          description = $4,
+          content = $5,
+          sort_order = $6
+        WHERE id = $7
+      `,
+      [
+        body.title || 'Новая статья',
+        body.url || '#',
+        body.sourceName || 'Источник',
+        body.description || '',
+        body.theory || '',
+        Number(body.sortOrder ?? 1),
+        articleSourceId,
+      ],
+    );
+    const ontology = await syncOntologyForArticleSource(articleSourceId);
+
+    return { status: 200, payload: { articles: (await routes['GET /api/articles']()).payload, ontology } };
+  },
+
+  'POST /api/admin/article-source/create': async (request) => {
+    const body = await readBody(request);
+    if (!(await requireAdmin(body.userId))) return { status: 403, payload: { error: 'Admin role required.' } };
+
+    const topicResult = await pool.query('SELECT id FROM topics WHERE slug = $1', [body.topicId]);
+    if (topicResult.rows.length === 0) return { status: 404, payload: { error: 'Topic not found.' } };
+
+    const maxOrder = await pool.query('SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_order FROM article_sources WHERE topic_id = $1', [
+      topicResult.rows[0].id,
+    ]);
+    const result = await pool.query(
+      `
+        INSERT INTO article_sources (topic_id, title, url, source_name, description, content, sort_order)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id
+      `,
+      [
+        topicResult.rows[0].id,
+        body.title || 'Новая статья',
+        body.url || '#',
+        body.sourceName || 'Источник',
+        body.description || '',
+        body.theory || '',
+        maxOrder.rows[0].next_order,
+      ],
+    );
+    const ontology = await syncOntologyForArticleSource(result.rows[0].id);
+
+    return { status: 200, payload: { articles: (await routes['GET /api/articles']()).payload, ontology } };
+  },
+
+  'POST /api/admin/article-source/delete': async (request) => {
+    const body = await readBody(request);
+    if (!(await requireAdmin(body.userId))) return { status: 403, payload: { error: 'Admin role required.' } };
+
+    const articleSourceId = parseArticleSourceId(body.articleId);
+    if (!articleSourceId) return { status: 400, payload: { error: 'Article is required.' } };
+    const topicResult = await pool.query(
+      `
+        SELECT topics.slug
+        FROM article_sources
+        JOIN topics ON topics.id = article_sources.topic_id
+        WHERE article_sources.id = $1
+      `,
+      [articleSourceId],
+    );
+    await pool.query('DELETE FROM article_sources WHERE id = $1', [articleSourceId]);
+    const ontology = await syncOntologyForTopic(topicResult.rows[0]?.slug);
+
+    return { status: 200, payload: { articles: (await routes['GET /api/articles']()).payload, ontology } };
+  },
+
   'POST /api/admin/subtopic': async (request) => {
     const body = await readBody(request);
     if (!(await requireAdmin(body.userId))) return { status: 403, payload: { error: 'Admin role required.' } };
 
-    await pool.query('UPDATE subtopics SET name = $1, description = $2 WHERE slug = $3', [
+    await pool.query('UPDATE subtopics SET name = $1, description = $2, theory_content = $3 WHERE slug = $4', [
       body.title,
       body.description,
+      body.theory ?? '',
       body.subtopicId,
     ]);
     const ontology = await syncOntologyForSubtopic(body.subtopicId);
@@ -1683,12 +1867,8 @@ const routes = {
     const maxOrder = await pool.query('SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_order FROM subtopics WHERE topic_id = $1', [
       topicId,
     ]);
-    const baseSlug = String(body.title ?? 'new-subtopic')
-      .toLowerCase()
-      .replace(/[^a-z0-9а-яё]+/gi, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 80);
-    const slug = `${body.topicId}-${baseSlug || 'subtopic'}-${Date.now()}`;
+    const baseSlug = makeUrlSlug(body.title, 'subtopic');
+    const slug = `${body.topicId}-${baseSlug}-${Date.now()}`;
 
     const subtopicResult = await pool.query(
       `
@@ -1699,6 +1879,8 @@ const routes = {
       [topicId, slug, body.title || 'Новая подтема', body.description || '', maxOrder.rows[0].next_order],
     );
 
+    await pool.query('UPDATE subtopics SET theory_content = $1 WHERE id = $2', [body.theory || '', subtopicResult.rows[0].id]);
+
     const testResult = await pool.query(
       `
         INSERT INTO tests (topic_id, subtopic_id, title)
@@ -1708,23 +1890,53 @@ const routes = {
       [topicId, subtopicResult.rows[0].id, `Тест: ${subtopicResult.rows[0].name}`],
     );
 
-    const questionResult = await pool.query(
-      `
-        INSERT INTO questions (test_id, sort_order)
-        VALUES ($1, 1)
-        RETURNING id
-      `,
-      [testResult.rows[0].id],
-    );
+    const questions = Array.isArray(body.questions) && body.questions.length > 0
+      ? body.questions
+      : [{ question: body.question || '', options: body.options ?? [] }];
 
-    for (const order of [1, 2, 3, 4]) {
-      await pool.query('INSERT INTO answer_options (question_id, sort_order, is_correct) VALUES ($1, $2, $3)', [
-        questionResult.rows[0].id,
-        order,
-        order === 1,
-      ]);
+    for (const [questionIndex, question] of questions.entries()) {
+      const questionResult = await pool.query(
+        `
+          INSERT INTO questions (test_id, question_text, sort_order)
+          VALUES ($1, $2, $3)
+          RETURNING id
+        `,
+        [testResult.rows[0].id, question.question || '', questionIndex + 1],
+      );
+
+      const options = question.options?.length ? question.options : [{ text: '' }, { text: '' }, { text: '' }, { text: '' }];
+      const hasCorrectOption = options.some((option) => Boolean(option.isCorrect));
+      for (const [index, option] of options.entries()) {
+        await pool.query('INSERT INTO answer_options (question_id, option_text, sort_order, is_correct) VALUES ($1, $2, $3, $4)', [
+          questionResult.rows[0].id,
+          option.text ?? '',
+          index + 1,
+          hasCorrectOption ? Boolean(option.isCorrect) : index === 0,
+        ]);
+      }
     }
     const ontology = await syncOntologyForTopic(body.topicId);
+
+    return { status: 200, payload: { topics: await getTopics(), tests: (await routes['GET /api/tests']()).payload, ontology } };
+  },
+
+  'POST /api/admin/subtopic/delete': async (request) => {
+    const body = await readBody(request);
+    if (!(await requireAdmin(body.userId))) return { status: 403, payload: { error: 'Admin role required.' } };
+
+    const { rows } = await pool.query(
+      `
+        SELECT topics.slug
+        FROM subtopics
+        JOIN topics ON topics.id = subtopics.topic_id
+        WHERE subtopics.slug = $1
+      `,
+      [body.subtopicId],
+    );
+    if (rows.length === 0) return { status: 404, payload: { error: 'Subtopic not found.' } };
+
+    await pool.query('DELETE FROM subtopics WHERE slug = $1', [body.subtopicId]);
+    const ontology = await syncOntologyForTopic(rows[0]?.slug);
 
     return { status: 200, payload: { topics: await getTopics(), tests: (await routes['GET /api/tests']()).payload, ontology } };
   },
@@ -1741,8 +1953,19 @@ const routes = {
         option.id,
       ]);
     }
+    const { rows } = await pool.query(
+      `
+        SELECT subtopics.slug
+        FROM questions
+        JOIN tests ON tests.id = questions.test_id
+        JOIN subtopics ON subtopics.id = tests.subtopic_id
+        WHERE questions.id = $1
+      `,
+      [body.questionId],
+    );
+    const ontology = await syncOntologyForSubtopic(rows[0]?.slug);
 
-    return { status: 200, payload: { tests: (await routes['GET /api/tests']()).payload } };
+    return { status: 200, payload: { tests: (await routes['GET /api/tests']()).payload, ontology } };
   },
 
   'POST /api/admin/question/create': async (request) => {
@@ -1782,8 +2005,29 @@ const routes = {
         index + 1,
       ]);
     }
+    const ontology = await syncOntologyForSubtopic(body.subtopicId);
 
-    return { status: 200, payload: { tests: (await routes['GET /api/tests']()).payload } };
+    return { status: 200, payload: { tests: (await routes['GET /api/tests']()).payload, ontology } };
+  },
+
+  'POST /api/admin/question/delete': async (request) => {
+    const body = await readBody(request);
+    if (!(await requireAdmin(body.userId))) return { status: 403, payload: { error: 'Admin role required.' } };
+
+    const { rows } = await pool.query(
+      `
+        SELECT subtopics.slug
+        FROM questions
+        JOIN tests ON tests.id = questions.test_id
+        JOIN subtopics ON subtopics.id = tests.subtopic_id
+        WHERE questions.id = $1
+      `,
+      [body.questionId],
+    );
+    await pool.query('DELETE FROM questions WHERE id = $1', [body.questionId]);
+    const ontology = await syncOntologyForSubtopic(rows[0]?.slug);
+
+    return { status: 200, payload: { tests: (await routes['GET /api/tests']()).payload, ontology } };
   },
 };
 
@@ -1815,6 +2059,8 @@ const server = http.createServer(async (request, response) => {
 });
 
 const port = Number(process.env.PORT ?? 4000);
+
+await ensureRuntimeSchema();
 
 server.listen(port, () => {
   if (process.stdout.writable) {

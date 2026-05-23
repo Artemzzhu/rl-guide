@@ -1723,10 +1723,48 @@ p {
   margin-bottom: 10px;
 }
 
+.admin-page {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-head {
+  gap: 18px;
+}
+
+.admin-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 5px;
+  background: #eef4ef;
+  border: 1px solid #d8e5db;
+  border-radius: 8px;
+}
+
+.admin-tabs button {
+  min-height: 42px;
+  color: #395046;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  font-weight: 650;
+}
+
+.admin-tabs button.active {
+  color: #ffffff;
+  background: #2f5a45;
+}
+
 .admin-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 20px;
+}
+
+.admin-layout > .profile-form {
+  align-self: start;
 }
 
 .admin-section-head {
@@ -1772,6 +1810,66 @@ p {
   grid-template-columns: minmax(0, 1fr) 34px;
   gap: 8px;
   align-items: center;
+}
+
+.large-textarea {
+  min-height: 460px;
+  line-height: 1.55;
+}
+
+.admin-layout .large-textarea {
+  min-height: 520px;
+}
+
+.danger-button {
+  color: #7a2e2e;
+  background: #fff3f0;
+  border-color: #e4b5ad;
+}
+
+.danger-button:hover {
+  color: #6b2323;
+  background: #ffe8e3;
+}
+
+.admin-note {
+  margin: 0;
+  color: #65776b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.admin-question-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  background: #f8faf8;
+  border: 1px solid #d8e7dc;
+  border-radius: 8px;
+}
+
+.admin-question-card-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-question-card-head h4 {
+  margin: 0;
+  color: #233a2f;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.admin-empty-panel {
+  align-content: start;
+  color: #65776b;
+}
+
+.admin-empty-panel p {
+  margin: 0;
+  line-height: 1.5;
 }
 
 .history {

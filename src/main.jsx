@@ -601,7 +601,7 @@ function App() {
         )}
 
         {activeView === 'admin' && (
-          <AdminPage adminRequest={adminRequest} student={student} tests={tests} topics={topics} />
+          <AdminPage adminRequest={adminRequest} articles={articles} student={student} tests={tests} topics={topics} />
         )}
 
         {activeView === 'profile' && (
@@ -769,7 +769,7 @@ function SearchBox({ query, results, searchOpen, selectResult, setQuery, setSear
             setSearchOpen(true);
           }}
           onFocus={() => setSearchOpen(true)}
-          placeholder="Поиск по темам, статьям и онтологии"
+          placeholder="Поиск по темам, подтемам и статьям"
         />
       </label>
       {searchOpen && query.trim() && (
@@ -2092,9 +2092,9 @@ function TopicPage({
         <p>Подтем изучено: {progress.topics?.[activeTopic.id]?.completed ?? 0} из {activeTopic.subtopics?.length ?? 0}.</p>
         {false && adaptiveRecommendation && (
           <div className="ontology-tip">
-            <span>Онтология</span>
-            <h4>{adaptiveRecommendation.title}</h4>
-            <p>{adaptiveRecommendation.text}</p>
+            <span>Рекомендация</span>
+            <h4>{cleanUserFacingText(adaptiveRecommendation.title)}</h4>
+            <p>{cleanUserFacingText(adaptiveRecommendation.text)}</p>
             {adaptiveRecommendation.topicId && (
               <div className="card-actions">
                 <button className="secondary compact" onClick={() => openTopic(adaptiveRecommendation.topicId, adaptiveRecommendation.subtopicId)}>
@@ -2205,7 +2205,7 @@ function buildExamOntologyRecommendations(questions, selected, topics) {
     .map((item) => ({
       ...item,
       title: `Повторить тему: ${item.topicTitle}`,
-      text: `Онтология экзамена нашла ${item.count} ошибок в этой теме. Рекомендуется вернуться к подтеме "${item.subtopicTitle}" и повторить связанные понятия.`,
+      text: `В этой теме найдено ${item.count} ошибок. Рекомендуется вернуться к подтеме "${item.subtopicTitle}" и повторить связанные понятия.`,
     }));
 }
 
@@ -2324,15 +2324,15 @@ function ExamPage({ examResult, openTopic, setExamResult, student, tests, topics
       {result && <p className={`result-message ${result.kind}`}>{result.text}</p>}
       {result && !result.incomplete && (
         <div className="post-test-panel exam-ontology-panel">
-          <span className="eyebrow">Онтология после экзамена</span>
+          <span className="eyebrow">После экзамена</span>
           <h3>Рекомендации по повторению</h3>
           {result.ontology?.length > 0 ? (
             <div className="recommendation-list">
               {result.ontology.map((item) => (
               <article key={item.topicId}>
                 <span className="ontology-badge">Связанная тема</span>
-                <h3>{item.title}</h3>
-                <p>{item.text}</p>
+                <h3>{cleanUserFacingText(item.title)}</h3>
+                <p>{cleanUserFacingText(item.text)}</p>
                 <div className="card-actions">
                   <button className="secondary compact" onClick={() => openTopic(item.topicId, item.subtopicId)}>
                     Подтема
@@ -2342,7 +2342,7 @@ function ExamPage({ examResult, openTopic, setExamResult, student, tests, topics
               ))}
             </div>
           ) : (
-            <p className="result-message success">Ошибок нет: онтология не нашла тем для обязательного повторения.</p>
+            <p className="result-message success">Ошибок нет: тем для обязательного повторения не найдено.</p>
           )}
         </div>
       )}
@@ -2430,17 +2430,27 @@ function ArticlesPage({ activeArticle, articles, openArticle }) {
   );
 }
 
+const capitalizeFirstLetter = (value) => value.charAt(0).toUpperCase() + value.slice(1);
+const cleanUserFacingText = (value) =>
+  capitalizeFirstLetter(String(value ?? '')
+    .replace(/Онтология:\s*/gi, '')
+    .replace(/онтология экзамена нашла/gi, 'В экзамене найдено')
+    .replace(/онтология не нашла/gi, 'не найдено')
+    .trim());
+
 function Recommendations({ recommendations, openArticle, openTopic }) {
   return (
     <div className="recommendation-list">
       {recommendations.map((item, index) => {
         const articleTarget = item.articleId ?? item.topicId;
+        const title = cleanUserFacingText(item.title);
+        const text = cleanUserFacingText(item.text);
 
         return (
-        <article key={`${item.title}-${index}`}>
-          {item.kind === 'ontology' && <span className="ontology-badge">Онтология</span>}
-          <h3>{item.title}</h3>
-          <p>{item.text}</p>
+        <article key={`${title}-${index}`}>
+          {item.kind === 'ontology' && <span className="ontology-badge">Связанная тема</span>}
+          <h3>{title}</h3>
+          <p>{text}</p>
           {(articleTarget || item.subtopicId) && (
             <div className="card-actions">
               {articleTarget && (
@@ -2727,55 +2737,109 @@ function ProfilePage({
   );
 }
 
-function AdminPage({ adminRequest, student, tests, topics }) {
+function AdminPage({ adminRequest, articles, student, tests, topics }) {
+  const [activeTab, setActiveTab] = useState('articles');
   const [topicId, setTopicId] = useState(topics[0]?.id ?? '');
-  const [subtopicId, setSubtopicId] = useState('');
-  const [questionId, setQuestionId] = useState('');
+  const [articleMode, setArticleMode] = useState('edit');
+  const [articleId, setArticleId] = useState('');
   const [subtopicMode, setSubtopicMode] = useState('edit');
-  const [questionMode, setQuestionMode] = useState('edit');
-  const topic = topics.find((item) => item.id === topicId) ?? topics[0];
-  const subtopic = topic?.subtopics?.find((item) => item.id === subtopicId) ?? topic?.subtopics?.[0];
-  const test = subtopic ? tests[subtopic.id] : null;
-  const question = test?.questions?.find((item) => String(item.id) === String(questionId)) ?? test?.questions?.[0];
-  const [articleForm, setArticleForm] = useState({ title: '', theory: '', practice: '' });
-  const [subtopicForm, setSubtopicForm] = useState({ title: '', description: '' });
-  const [questionForm, setQuestionForm] = useState(null);
+  const [subtopicId, setSubtopicId] = useState('');
+  const [topicQuestionMode, setTopicQuestionMode] = useState('edit');
+  const [topicQuestionId, setTopicQuestionId] = useState('');
+  const [examQuestionMode, setExamQuestionMode] = useState('edit');
+  const [examQuestionId, setExamQuestionId] = useState('');
+  const [articleForm, setArticleForm] = useState({ title: '', sourceName: '', url: '', description: '', theory: '', sortOrder: 1 });
+  const [subtopicForm, setSubtopicForm] = useState({ title: '', description: '', theory: '' });
+  const [topicQuestionForm, setTopicQuestionForm] = useState(null);
+  const [createQuestionForms, setCreateQuestionForms] = useState([]);
+  const [examQuestionForm, setExamQuestionForm] = useState(null);
   const [message, setMessage] = useState('');
 
+  const topic = topics.find((item) => item.id === topicId) ?? topics[0];
+  const topicArticles = articles.filter((article) => article.topicId === topic?.id);
+  const activeArticle = topicArticles.find((article) => article.id === articleId) ?? topicArticles[0];
+  const subtopic = topic?.subtopics?.find((item) => item.id === subtopicId) ?? topic?.subtopics?.[0];
+  const subtopicQuestions = tests[subtopic?.id]?.questions ?? [];
+  const topicQuestion = subtopicQuestions.find((item) => String(item.id) === String(topicQuestionId)) ?? subtopicQuestions[0];
+  const examQuestions = topics.flatMap((item) =>
+    (item.subtopics ?? []).flatMap((lesson) =>
+      (tests[lesson.id]?.questions ?? []).map((question) => ({
+        ...question,
+        topicId: item.id,
+        topicTitle: item.title,
+        subtopicId: lesson.id,
+        subtopicTitle: lesson.title,
+      })),
+    ),
+  );
+  const examQuestion = examQuestions.find((item) => String(item.id) === String(examQuestionId)) ?? examQuestions[0];
+
+  const emptyOptions = () => [
+    { id: 'new-1', text: '', isCorrect: true },
+    { id: 'new-2', text: '', isCorrect: false },
+    { id: 'new-3', text: '', isCorrect: false },
+    { id: 'new-4', text: '', isCorrect: false },
+  ];
+  const buildQuestionForm = (question) =>
+    question
+      ? {
+          questionId: question.id,
+          question: question.question,
+          options: question.options.map((option, index) => ({ ...option, isCorrect: option.isCorrect ?? index === 0 })),
+        }
+      : { question: '', options: emptyOptions() };
+  const formatOntologyMessage = (payload) => {
+    const ontology = payload?.ontology;
+    if (!ontology) return '';
+    return ` Связи материалов обновлены: ${ontology.concepts ?? 0} понятий, ${ontology.links ?? 0} связей.`;
+  };
+
   useEffect(() => {
-    setArticleForm({ title: topic?.articleTitle ?? topic?.title ?? '', theory: topic?.theory ?? '', practice: topic?.practice ?? '' });
-    setSubtopicId(topic?.subtopics?.[0]?.id ?? '');
+    if (!topics.some((item) => item.id === topicId)) setTopicId(topics[0]?.id ?? '');
   }, [topicId, topics]);
 
   useEffect(() => {
-    if (subtopicMode === 'edit') {
-      setSubtopicForm({ title: subtopic?.title ?? '', description: subtopic?.description ?? '' });
-    } else {
-      setSubtopicForm({ title: '', description: '' });
-    }
-    setQuestionId(test?.questions?.[0]?.id ?? '');
-  }, [subtopic?.id, subtopicMode, test?.questions]);
+    setArticleId(topicArticles[0]?.id ?? '');
+    setSubtopicId(topic?.subtopics?.[0]?.id ?? '');
+  }, [topic?.id, articles]);
 
   useEffect(() => {
-    const currentQuestion = questionMode === 'edit' ? question : null;
-    setQuestionForm(
-      currentQuestion
-        ? {
-            questionId: currentQuestion.id,
-            question: currentQuestion.question,
-            options: currentQuestion.options.map((option, index) => ({ ...option, isCorrect: option.isCorrect ?? index === 0 })),
-          }
-        : {
-            question: '',
-            options: [
-              { id: 'new-1', text: '', isCorrect: true },
-              { id: 'new-2', text: '', isCorrect: false },
-              { id: 'new-3', text: '', isCorrect: false },
-              { id: 'new-4', text: '', isCorrect: false },
-            ],
-          },
-    );
-  }, [question?.id, questionMode]);
+    if (articleMode === 'edit' && activeArticle) {
+      setArticleForm({
+        title: activeArticle.title ?? '',
+        sourceName: activeArticle.sources?.[0]?.sourceName ?? '',
+        url: activeArticle.sources?.[0]?.url ?? '',
+        description: activeArticle.description ?? '',
+        theory: activeArticle.theory ?? '',
+        sortOrder: activeArticle.sources?.[0]?.sortOrder ?? 1,
+      });
+    } else {
+      setArticleForm({ title: '', sourceName: '', url: '', description: '', theory: '', sortOrder: topicArticles.length + 1 });
+    }
+  }, [activeArticle?.id, articleMode, topicArticles.length]);
+
+  useEffect(() => {
+    if (subtopicMode === 'edit' && subtopic) {
+      setSubtopicForm({ title: subtopic.title ?? '', description: subtopic.description ?? '', theory: subtopic.theory ?? '' });
+    } else {
+      setSubtopicForm({ title: '', description: '', theory: '' });
+    }
+    setTopicQuestionId(subtopicQuestions[0]?.id ?? '');
+  }, [subtopic?.id, subtopicMode, subtopicQuestions.length]);
+
+  useEffect(() => {
+    setTopicQuestionForm(buildQuestionForm(subtopicMode === 'create' || topicQuestionMode === 'create' ? null : topicQuestion));
+  }, [topicQuestion?.id, topicQuestionMode, subtopicMode]);
+
+  useEffect(() => {
+    if (subtopicMode === 'create' && createQuestionForms.length === 0) {
+      setCreateQuestionForms([buildQuestionForm(null)]);
+    }
+  }, [createQuestionForms.length, subtopicMode]);
+
+  useEffect(() => {
+    setExamQuestionForm(buildQuestionForm(examQuestionMode === 'edit' ? examQuestion : null));
+  }, [examQuestion?.id, examQuestionMode]);
 
   if (student?.role !== 'admin') {
     return (
@@ -2787,169 +2851,261 @@ function AdminPage({ adminRequest, student, tests, topics }) {
     );
   }
 
-  const formatOntologyMessage = (payload) => {
-    const ontology = payload?.ontology;
-    if (!ontology) return '';
-    return ` Онтология обновлена: ${ontology.concepts ?? 0} понятий, ${ontology.links ?? 0} связей.`;
+  const updateQuestionOption = (form, setForm, optionId, patch) => {
+    setForm({
+      ...form,
+      options: form.options.map((option) => (option.id === optionId ? { ...option, ...patch } : option)),
+    });
+  };
+  const setCorrectOption = (form, setForm, optionId) => {
+    setForm({ ...form, options: form.options.map((option) => ({ ...option, isCorrect: option.id === optionId })) });
+  };
+  const QuestionEditor = ({ form, mode, onDelete, onSave, radioName, saveLabel, setForm, showDelete = true, showSave = true }) => (
+    <>
+      <label>
+        Текст вопроса
+        <input value={form.question} onChange={(event) => setForm({ ...form, question: event.target.value })} />
+      </label>
+      {form.options.map((option, index) => (
+        <label key={option.id}>
+          Вариант {index + 1}
+          <div className="option-editor">
+            <input value={option.text} onChange={(event) => updateQuestionOption(form, setForm, option.id, { text: event.target.value })} />
+            <input checked={option.isCorrect} name={radioName ?? `correct-option-${activeTab}`} type="radio" onChange={() => setCorrectOption(form, setForm, option.id)} />
+          </div>
+        </label>
+      ))}
+      {(showSave || (showDelete && mode === 'edit')) && (
+        <div className="actions">
+          {showSave && (
+            <button className="primary" type="button" onClick={onSave}>
+              {saveLabel ?? (mode === 'edit' ? 'Сохранить вопрос' : 'Добавить вопрос')}
+            </button>
+          )}
+          {showDelete && mode === 'edit' && (
+            <button className="secondary danger-button" type="button" onClick={onDelete}>
+              Удалить вопрос
+            </button>
+          )}
+        </div>
+      )}
+    </>
+  );
+  const updateCreateQuestionForm = (index, form) => {
+    setCreateQuestionForms((forms) => forms.map((item, itemIndex) => (itemIndex === index ? form : item)));
+  };
+  const addCreateQuestionForm = () => {
+    setCreateQuestionForms((forms) => [...forms, buildQuestionForm(null)]);
+  };
+  const removeCreateQuestionForm = (index) => {
+    setCreateQuestionForms((forms) => (forms.length > 1 ? forms.filter((_, itemIndex) => itemIndex !== index) : forms));
   };
 
-  const saveArticle = async () => {
-    const payload = await adminRequest('/admin/article', { topicId, ...articleForm });
-    setMessage(`Статья сохранена.${formatOntologyMessage(payload)}`);
+  const saveArticleSource = async () => {
+    const path = articleMode === 'edit' ? '/admin/article-source' : '/admin/article-source/create';
+    const payload = await adminRequest(path, { topicId, articleId: activeArticle?.id, ...articleForm });
+    setArticleMode('edit');
+    setMessage(`${articleMode === 'edit' ? 'Статья сохранена.' : 'Статья добавлена.'}${formatOntologyMessage(payload)}`);
   };
-
+  const deleteArticleSource = async () => {
+    if (!activeArticle || !window.confirm('Удалить выбранную статью?')) return;
+    const payload = await adminRequest('/admin/article-source/delete', { articleId: activeArticle.id });
+    setMessage(`Статья удалена.${formatOntologyMessage(payload)}`);
+  };
   const saveSubtopic = async () => {
-    if (subtopicMode === 'edit') {
-      const payload = await adminRequest('/admin/subtopic', { subtopicId: subtopic.id, ...subtopicForm });
-      setMessage(`Подтема сохранена.${formatOntologyMessage(payload)}`);
-    } else {
-      const payload = await adminRequest('/admin/subtopic/create', { topicId, ...subtopicForm });
-      setSubtopicMode('edit');
-      setMessage(`Новая подтема добавлена.${formatOntologyMessage(payload)}`);
-    }
+    const path = subtopicMode === 'edit' ? '/admin/subtopic' : '/admin/subtopic/create';
+    const payload = await adminRequest(path, {
+      topicId,
+      subtopicId: subtopic?.id,
+      ...subtopicForm,
+      ...(subtopicMode === 'create' ? { questions: createQuestionForms } : {}),
+    });
+    setSubtopicMode('edit');
+    setMessage(`${subtopicMode === 'edit' ? 'Подтема сохранена.' : 'Подтема добавлена.'}${formatOntologyMessage(payload)}`);
   };
-
-  const saveQuestion = async () => {
-    if (questionMode === 'edit') {
-      await adminRequest('/admin/question', questionForm);
-      setMessage('Вопрос сохранен.');
-    } else {
-      await adminRequest('/admin/question/create', { subtopicId: subtopic.id, ...questionForm });
-      setQuestionMode('edit');
-      setMessage('Новый вопрос добавлен.');
-    }
+  const deleteSubtopic = async () => {
+    if (!subtopic || !window.confirm('Удалить выбранную подтему вместе с тестом и прогрессом?')) return;
+    const payload = await adminRequest('/admin/subtopic/delete', { subtopicId: subtopic.id });
+    setSubtopicMode('edit');
+    setMessage(`Подтема удалена.${formatOntologyMessage(payload)}`);
+  };
+  const saveTopicQuestion = async () => {
+    const path = topicQuestionMode === 'edit' ? '/admin/question' : '/admin/question/create';
+    const payload = await adminRequest(path, { subtopicId: subtopic?.id, ...topicQuestionForm });
+    setTopicQuestionMode('edit');
+    setMessage(`${topicQuestionMode === 'edit' ? 'Вопрос сохранен.' : 'Вопрос добавлен.'}${formatOntologyMessage(payload)}`);
+  };
+  const deleteTopicQuestion = async () => {
+    if (!topicQuestion || !window.confirm('Удалить выбранный вопрос?')) return;
+    const payload = await adminRequest('/admin/question/delete', { questionId: topicQuestion.id });
+    setMessage(`Вопрос удален.${formatOntologyMessage(payload)}`);
+  };
+  const saveExamQuestion = async () => {
+    const target = examQuestionMode === 'edit' ? examQuestion : subtopic;
+    const path = examQuestionMode === 'edit' ? '/admin/question' : '/admin/question/create';
+    const payload = await adminRequest(path, { subtopicId: target?.subtopicId ?? target?.id, ...examQuestionForm });
+    setExamQuestionMode('edit');
+    setMessage(`${examQuestionMode === 'edit' ? 'Вопрос экзамена сохранен.' : 'Вопрос экзамена добавлен.'}${formatOntologyMessage(payload)}`);
+  };
+  const deleteExamQuestion = async () => {
+    if (!examQuestion || !window.confirm('Удалить выбранный вопрос из экзамена?')) return;
+    const payload = await adminRequest('/admin/question/delete', { questionId: examQuestion.id });
+    setMessage(`Вопрос экзамена удален.${formatOntologyMessage(payload)}`);
   };
 
   return (
-    <section className="admin-layout">
-      <div className="lesson">
+    <section className="admin-page">
+      <div className="lesson admin-head">
         <span className="eyebrow">Админ-панель</span>
-        <h2>Наполнение пособия</h2>
+        <h2>Управление материалами курса</h2>
+        <div className="admin-tabs">
+          <button className={activeTab === 'articles' ? 'active' : ''} type="button" onClick={() => setActiveTab('articles')}>Статьи</button>
+          <button className={activeTab === 'topics' ? 'active' : ''} type="button" onClick={() => setActiveTab('topics')}>Темы</button>
+          <button className={activeTab === 'exam' ? 'active' : ''} type="button" onClick={() => setActiveTab('exam')}>Экзамен</button>
+        </div>
+      </div>
+
+      {activeTab !== 'exam' && (
         <label className="admin-label">
           Тема
           <select value={topicId} onChange={(event) => setTopicId(event.target.value)}>
-            {topics.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.title}
-              </option>
-            ))}
+            {topics.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
           </select>
         </label>
-      </div>
+      )}
 
-      <div className="profile-form">
-        <h3>Статья</h3>
-        <label>
-          Заголовок
-          <input value={articleForm.title} onChange={(event) => setArticleForm({ ...articleForm, title: event.target.value })} />
-        </label>
-        <label>
-          Теория
-          <textarea value={articleForm.theory} onChange={(event) => setArticleForm({ ...articleForm, theory: event.target.value })} />
-        </label>
-        <label>
-          Практический блок
-          <textarea value={articleForm.practice} onChange={(event) => setArticleForm({ ...articleForm, practice: event.target.value })} />
-        </label>
-        <button className="primary" type="button" onClick={saveArticle}>
-          Сохранить статью
-        </button>
-      </div>
-
-      <div className="profile-form">
-        <div className="admin-section-head">
-          <h3>{subtopicMode === 'edit' ? 'Подтема' : 'Новая подтема'}</h3>
-          <div className="auth-switch compact-switch">
-            <button className={subtopicMode === 'edit' ? 'active' : ''} type="button" onClick={() => setSubtopicMode('edit')}>
-              Изменить
-            </button>
-            <button className={subtopicMode === 'create' ? 'active' : ''} type="button" onClick={() => setSubtopicMode('create')}>
-              Добавить
-            </button>
+      {activeTab === 'articles' && (
+        <div className="admin-layout">
+          <div className="profile-form">
+            <div className="admin-section-head">
+              <h3>{articleMode === 'edit' ? 'Редактирование статьи' : 'Новая статья'}</h3>
+              <div className="auth-switch compact-switch">
+                <button className={articleMode === 'edit' ? 'active' : ''} type="button" onClick={() => setArticleMode('edit')}>Изменить</button>
+                <button className={articleMode === 'create' ? 'active' : ''} type="button" onClick={() => setArticleMode('create')}>Добавить</button>
+              </div>
+            </div>
+            {articleMode === 'edit' && (
+              <label>
+                Статья в выбранной теме
+                <select value={activeArticle?.id ?? ''} onChange={(event) => setArticleId(event.target.value)}>
+                  {topicArticles.map((article) => <option key={article.id} value={article.id}>{article.title}</option>)}
+                </select>
+              </label>
+            )}
+            <label>Название<input value={articleForm.title} onChange={(event) => setArticleForm({ ...articleForm, title: event.target.value })} /></label>
+            <label>Источник<input value={articleForm.sourceName} onChange={(event) => setArticleForm({ ...articleForm, sourceName: event.target.value })} /></label>
+            <label>Ссылка<input value={articleForm.url} onChange={(event) => setArticleForm({ ...articleForm, url: event.target.value })} /></label>
+            <label>Краткое описание<textarea value={articleForm.description} onChange={(event) => setArticleForm({ ...articleForm, description: event.target.value })} /></label>
           </div>
-        </div>
-        {subtopicMode === 'edit' && (
-          <label>
-            Выбор подтемы
-            <select value={subtopic?.id ?? ''} onChange={(event) => setSubtopicId(event.target.value)}>
-              {(topic?.subtopics ?? []).map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <label>
-          Название
-          <input value={subtopicForm.title} onChange={(event) => setSubtopicForm({ ...subtopicForm, title: event.target.value })} />
-        </label>
-        <label>
-          Описание
-          <textarea value={subtopicForm.description} onChange={(event) => setSubtopicForm({ ...subtopicForm, description: event.target.value })} />
-        </label>
-        <button className="primary" type="button" onClick={saveSubtopic}>
-          {subtopicMode === 'edit' ? 'Сохранить подтему' : 'Добавить подтему'}
-        </button>
-      </div>
-
-      {questionForm && (
-        <div className="profile-form wide">
-          <div className="admin-section-head">
-            <h3>{questionMode === 'edit' ? 'Вопрос теста' : 'Новый вопрос теста'}</h3>
-            <div className="auth-switch compact-switch">
-              <button className={questionMode === 'edit' ? 'active' : ''} type="button" onClick={() => setQuestionMode('edit')}>
-                Изменить
-              </button>
-              <button className={questionMode === 'create' ? 'active' : ''} type="button" onClick={() => setQuestionMode('create')}>
-                Добавить
-              </button>
+          <div className="profile-form">
+            <h3>Текст статьи</h3>
+            <label>Содержание<textarea className="large-textarea" value={articleForm.theory} onChange={(event) => setArticleForm({ ...articleForm, theory: event.target.value })} /></label>
+            <div className="actions">
+              <button className="primary" type="button" onClick={saveArticleSource}>{articleMode === 'edit' ? 'Сохранить статью' : 'Добавить статью'}</button>
+              {articleMode === 'edit' && <button className="secondary danger-button" type="button" onClick={deleteArticleSource}>Удалить статью</button>}
             </div>
           </div>
-          {questionMode === 'edit' && (
-            <label>
-              Выбор вопроса
-              <select value={question?.id ?? ''} onChange={(event) => setQuestionId(event.target.value)}>
-                {(test?.questions ?? []).map((item, index) => (
-                  <option key={item.id} value={item.id}>
-                    {item.question || `Вопрос ${index + 1}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label>
-            Текст вопроса
-            <input value={questionForm.question} onChange={(event) => setQuestionForm({ ...questionForm, question: event.target.value })} />
-          </label>
-          {questionForm.options.map((option, index) => (
-            <label key={option.id}>
-              Вариант {index + 1}
-              <div className="option-editor">
-                <input
-                  value={option.text}
-                  onChange={(event) => {
-                    const options = questionForm.options.map((item) => (item.id === option.id ? { ...item, text: event.target.value } : item));
-                    setQuestionForm({ ...questionForm, options });
-                  }}
-                />
-                <input
-                  checked={option.isCorrect}
-                  name="correct-option"
-                  type="radio"
-                  onChange={() => {
-                    const options = questionForm.options.map((item) => ({ ...item, isCorrect: item.id === option.id }));
-                    setQuestionForm({ ...questionForm, options });
-                  }}
-                />
-              </div>
-            </label>
-          ))}
-          <button className="primary" type="button" onClick={saveQuestion}>
-            {questionMode === 'edit' ? 'Сохранить вопрос' : 'Добавить вопрос'}
-          </button>
         </div>
       )}
+
+      {activeTab === 'topics' && (
+        <div className="admin-layout">
+          <div className="profile-form">
+            <div className="admin-section-head">
+              <h3>{subtopicMode === 'edit' ? 'Подтема' : 'Новая подтема'}</h3>
+              <div className="auth-switch compact-switch">
+                <button className={subtopicMode === 'edit' ? 'active' : ''} type="button" onClick={() => setSubtopicMode('edit')}>Изменить</button>
+                <button className={subtopicMode === 'create' ? 'active' : ''} type="button" onClick={() => setSubtopicMode('create')}>Добавить</button>
+              </div>
+            </div>
+            {subtopicMode === 'edit' && (
+              <label>Подтема<select value={subtopic?.id ?? ''} onChange={(event) => setSubtopicId(event.target.value)}>{(topic?.subtopics ?? []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+            )}
+            <label>Название<input value={subtopicForm.title} onChange={(event) => setSubtopicForm({ ...subtopicForm, title: event.target.value })} /></label>
+            <label>Описание<textarea value={subtopicForm.description} onChange={(event) => setSubtopicForm({ ...subtopicForm, description: event.target.value })} /></label>
+            <label>Содержание подтемы<textarea className="large-textarea" value={subtopicForm.theory} onChange={(event) => setSubtopicForm({ ...subtopicForm, theory: event.target.value })} /></label>
+            <div className="actions">
+              <button className="primary" type="button" onClick={saveSubtopic}>{subtopicMode === 'edit' ? 'Сохранить подтему' : 'Добавить подтему'}</button>
+              {subtopicMode === 'edit' && (
+                <button className="secondary danger-button" type="button" onClick={deleteSubtopic}>
+                  Удалить подтему
+                </button>
+              )}
+            </div>
+          </div>
+          {subtopicMode === 'create' ? (
+            <div className="profile-form">
+              <div className="admin-section-head">
+                <h3>Вопросы теста</h3>
+                <button className="secondary" type="button" onClick={addCreateQuestionForm}>Добавить вопрос</button>
+              </div>
+              <p className="admin-note">Все вопросы сохранятся вместе с новой подтемой.</p>
+              {createQuestionForms.map((form, index) => (
+                <div className="admin-question-card" key={`new-question-${index}`}>
+                  <div className="admin-question-card-head">
+                    <h4>Вопрос {index + 1}</h4>
+                    {createQuestionForms.length > 1 && (
+                      <button className="secondary danger-button" type="button" onClick={() => removeCreateQuestionForm(index)}>
+                        Удалить
+                      </button>
+                    )}
+                  </div>
+                  <QuestionEditor
+                    form={form}
+                    mode="create"
+                    radioName={`correct-option-create-${index}`}
+                    setForm={(nextForm) => updateCreateQuestionForm(index, nextForm)}
+                    showDelete={false}
+                    showSave={false}
+                  />
+                </div>
+              ))}
+              <button className="primary" type="button" onClick={saveSubtopic}>Создать подтему с вопросами</button>
+            </div>
+          ) : topicQuestionForm && (
+            <div className="profile-form">
+              <div className="admin-section-head">
+                <h3>Вопросы подтемы</h3>
+                <div className="auth-switch compact-switch">
+                  <button className={topicQuestionMode === 'edit' ? 'active' : ''} type="button" onClick={() => setTopicQuestionMode('edit')}>Изменить</button>
+                  <button className={topicQuestionMode === 'create' ? 'active' : ''} type="button" onClick={() => setTopicQuestionMode('create')}>Добавить</button>
+                </div>
+              </div>
+              {topicQuestionMode === 'edit' && (
+                <label>Вопрос<select value={topicQuestion?.id ?? ''} onChange={(event) => setTopicQuestionId(event.target.value)}>{subtopicQuestions.map((item, index) => <option key={item.id} value={item.id}>{item.question || `Вопрос ${index + 1}`}</option>)}</select></label>
+              )}
+              <QuestionEditor form={topicQuestionForm} mode={topicQuestionMode} onDelete={deleteTopicQuestion} onSave={saveTopicQuestion} setForm={setTopicQuestionForm} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'exam' && examQuestionForm && (
+        <div className="admin-layout">
+          <div className="profile-form">
+            <div className="admin-section-head">
+              <h3>Вопросы экзамена</h3>
+              <div className="auth-switch compact-switch">
+                <button className={examQuestionMode === 'edit' ? 'active' : ''} type="button" onClick={() => setExamQuestionMode('edit')}>Изменить</button>
+                <button className={examQuestionMode === 'create' ? 'active' : ''} type="button" onClick={() => setExamQuestionMode('create')}>Добавить</button>
+              </div>
+            </div>
+            {examQuestionMode === 'edit' ? (
+              <label>Вопрос<select value={examQuestion?.id ?? ''} onChange={(event) => setExamQuestionId(event.target.value)}>{examQuestions.map((item, index) => <option key={item.id} value={item.id}>{item.topicTitle} / {item.subtopicTitle}: {item.question || `Вопрос ${index + 1}`}</option>)}</select></label>
+            ) : (
+              <>
+                <label>Тема<select value={topicId} onChange={(event) => setTopicId(event.target.value)}>{topics.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+                <label>Подтема<select value={subtopic?.id ?? ''} onChange={(event) => setSubtopicId(event.target.value)}>{(topic?.subtopics ?? []).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+              </>
+            )}
+            <p className="admin-note">Экзамен собирает вопросы из тестов курса. Изменения здесь сразу влияют на итоговый тест.</p>
+          </div>
+          <div className="profile-form">
+            <QuestionEditor form={examQuestionForm} mode={examQuestionMode} onDelete={deleteExamQuestion} onSave={saveExamQuestion} setForm={setExamQuestionForm} />
+          </div>
+        </div>
+      )}
+
       {message && <p className="result-message wide">{message}</p>}
     </section>
   );
