@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS article_sources (
   url TEXT NOT NULL,
   source_name VARCHAR(255) NOT NULL,
   description TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
   sort_order INTEGER NOT NULL DEFAULT 1,
   UNIQUE (topic_id, url)
 );

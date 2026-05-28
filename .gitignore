@@ -3,3 +3,5 @@ dist/
 *.log
 project.docx
 .env
+.idea/
+ontology/
